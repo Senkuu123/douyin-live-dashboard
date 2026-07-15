@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.local
+*.log
+vendor/douyinlive/*.exe
+vendor/douyinlive/*.zip
+vendor/douyinlive/config.yaml

@@ -1,0 +1,59 @@
+import { describe, expect, it } from "vitest";
+import { normalizeSidecarPayload } from "../src/domain/events.js";
+
+describe("normalizeSidecarPayload", () => {
+  it("keeps chat messages and hashes user identifiers", () => {
+    const events = normalizeSidecarPayload(
+      [
+        { id: "m1", method: "WebcastChatMessage", content: "你好", user: { id: "u1", name: "观众" } },
+        { id: "m2", method: "WebcastLikeMessage", user: { id: "u2" } }
+      ],
+      "test",
+      "salt",
+      new Date("2026-07-14T00:00:00.000Z")
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      platformMessageId: "m1",
+      eventType: "chat",
+      nickname: "观众",
+      content: "你好",
+      rawMethod: "WebcastChatMessage"
+    });
+    expect(events[0]?.userIdHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("supports the protobuf JSON shape emitted by the collector sidecar", () => {
+    const events = normalizeSidecarPayload(
+      {
+        common: { msgId: "9988", createTime: "1783987200000" },
+        user: { secUid: "secure-user-id", nickname: "测试用户" },
+        content: "测试弹幕",
+        method: "WebcastChatMessage",
+        livename: "主播",
+        title: "测试直播间"
+      },
+      "v2.0.24",
+      "salt"
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      platformMessageId: "9988",
+      nickname: "测试用户",
+      content: "测试弹幕",
+      collectorVersion: "v2.0.24"
+    });
+  });
+
+  it("ignores sidecar system messages", () => {
+    expect(
+      normalizeSidecarPayload(
+        { type: "system", code: "ROOM_ONLINE", message: "直播间已开播" },
+        "test",
+        ""
+      )
+    ).toEqual([]);
+  });
+});

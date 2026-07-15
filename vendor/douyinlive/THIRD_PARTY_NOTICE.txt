@@ -1,0 +1,5 @@
+﻿douyinLive
+Source: https://github.com/jwwsjlm/douyinLive
+Release: v2.0.24
+License: MIT
+Installed: 2026-07-14 20:44:31
