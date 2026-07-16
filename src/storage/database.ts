@@ -118,9 +118,18 @@ export async function migrate(pool: Pool): Promise<void> {
     for (const statement of migrationStatements) {
       await connection.query(statement);
     }
+    const [columns] = await connection.execute<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'interaction_events' AND COLUMN_NAME = 'metrics_json'`,
+      [PROJECT_DATABASE]
+    );
+    if (columns.length === 0) {
+      await connection.query("ALTER TABLE interaction_events ADD COLUMN metrics_json JSON NULL AFTER content");
+    }
     await connection.execute(
       "INSERT IGNORE INTO schema_migrations (version) VALUES (?)",
       [1]
     );
+    await connection.execute("INSERT IGNORE INTO schema_migrations (version) VALUES (?)", [2]);
   });
 }

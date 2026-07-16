@@ -10,12 +10,15 @@ async function main(): Promise<void> {
   await createProjectDatabase(config.database);
   const pool = createPool(config.database);
   const roomKey = `smoke-${Date.now()}`;
+  let roomDbId: number | null = null;
+  let sessionId: string | null = null;
 
   try {
     await migrate(pool);
     const repository = new MonitoringRepository(pool);
-    const roomDbId = await repository.getOrCreateRoom(roomKey, null);
+    roomDbId = await repository.getOrCreateRoom(roomKey, null);
     const context = await repository.startSession(roomDbId, "smoke-test");
+    sessionId = context.sessionId;
     const now = new Date();
     const event: StandardEvent = {
       eventId: randomUUID(),
@@ -26,6 +29,7 @@ async function main(): Promise<void> {
       userIdHash: null,
       nickname: "smoke",
       content: "database smoke test",
+      metrics: {},
       rawMethod: "WebcastChatMessage",
       collectorVersion: "smoke-test",
       payload: { smoke: true }
@@ -39,11 +43,13 @@ async function main(): Promise<void> {
     }
     process.stdout.write("database_smoke=passed\n");
 
-    await pool.execute("DELETE FROM interaction_events WHERE session_id = ?", [context.sessionId]);
-    await pool.execute("DELETE FROM connection_intervals WHERE session_id = ?", [context.sessionId]);
-    await pool.execute("DELETE FROM monitoring_sessions WHERE id = ?", [context.sessionId]);
-    await pool.execute("DELETE FROM live_rooms WHERE id = ?", [roomDbId]);
   } finally {
+    if (sessionId) {
+      await pool.execute("DELETE FROM interaction_events WHERE session_id = ?", [sessionId]).catch(() => undefined);
+      await pool.execute("DELETE FROM connection_intervals WHERE session_id = ?", [sessionId]).catch(() => undefined);
+      await pool.execute("DELETE FROM monitoring_sessions WHERE id = ?", [sessionId]).catch(() => undefined);
+    }
+    if (roomDbId) await pool.execute("DELETE FROM live_rooms WHERE id = ?", [roomDbId]).catch(() => undefined);
     await pool.end();
   }
 }

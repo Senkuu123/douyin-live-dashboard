@@ -1,6 +1,9 @@
 {
   "name": "douyin-live-dashboard",
   "version": "0.1.0",
+  "description": "抖音直播实时数据采集与桌面监控工作台",
+  "author": "Local Live Ops",
+  "main": "dist-electron/apps/desktop/main.js",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,18 +12,47 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "test:db": "tsx scripts/db-smoke.ts"
+    "test": "vitest run --root .",
+    "test:db": "tsx scripts/db-smoke.ts",
+    "audit:session": "tsx scripts/session-audit.ts",
+    "desktop:compile": "tsc -p tsconfig.electron.json",
+    "desktop:dev": "npm run desktop:compile && concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "desktop:build": "npm run desktop:compile && vite build",
+    "desktop:start": "npm run desktop:build && cross-env NODE_ENV=production electron .",
+    "desktop:package": "npm run desktop:build && electron-builder --win portable"
   },
   "dependencies": {
+    "echarts": "^6.1.0",
     "mysql2": "^3.14.4",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
     "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vite": "^7.3.6",
+    "vitest": "^3.2.4",
+    "wait-on": "^8.0.4"
+  },
+  "build": {
+    "appId": "com.local.douyin.live.dashboard",
+    "productName": "Douyin Live Dashboard",
+    "directories": { "output": "release" },
+    "asar": false,
+    "files": ["dist-electron/**/*", "dist-renderer/**/*", "package.json"],
+    "extraResources": [{ "from": "vendor/douyinlive", "to": "vendor/douyinlive", "filter": ["douyinLive.exe", "config.yaml", "LICENSE", "THIRD_PARTY_NOTICE.txt"] }],
+    "win": { "target": ["portable"], "executableName": "DouyinLiveDashboard", "signAndEditExecutable": false },
+    "artifactName": "DouyinLiveDashboard-${version}-${arch}.${ext}"
+    ,"electronDist": "node_modules/electron/dist"
   }
 }

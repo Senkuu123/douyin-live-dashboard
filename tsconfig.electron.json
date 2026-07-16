@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "outDir": "dist-electron", "types": ["node", "electron"] },
+  "include": ["src/**/*.ts", "apps/desktop/*.ts", "apps/desktop/*.cts"],
+  "exclude": ["tests", "dist", "dist-electron", "dist-renderer"]
+}

@@ -1,101 +1,77 @@
-# 抖音直播实时弹幕与数据看板
+# 抖音直播实时数据看板
 
-## 当前状态
+Windows 桌面端 MVP 已完成。软件连接公开抖音直播间，实时采集互动消息、写入 MySQL，并用暗色高密度工作台展示指标、趋势、事件和问题队列。
 
-MVP端到端链路已跑通，桌面UI暂缓
+## 已完成功能
 
-已完成：
+- Electron + React 桌面应用，主进程与渲染进程通过隔离 IPC 通信
+- 直播间链接/房间号输入、开始采集、停止采集和下播等待
+- 弹幕、进场、点赞、礼物、关注、分享、粉丝团、在线序列和房间统计采集
+- 原始消息与标准化指标同时入库，平台消息 ID 去重
+- 用户 ID 只保存 SHA-256 哈希，不保存明文 ID
+- 当前在线、进场、弹幕、点赞动作、礼物和独立用户指标
+- 最近 20 分钟互动趋势、实时弹幕、高价值事件流、问题规则和弹幕榜
+- 启动时恢复最近一个有数据的历史会话
+- 会话、连接区间、停止原因和采集完整性记录
 
-- TypeScript CLI工程
-- 房间号和`live.douyin.com`链接解析
-- `douyinLive v2.0.24`采集侧车安装和进程管理
-- 侧车WebSocket消息接收
-- 聊天弹幕标准化和用户标识哈希化
-- MySQL项目库创建、迁移、批量写入和消息去重
-- 监控会话、连接区间和停止状态记录
-- 最近会话查询
-- 公开直播间真实弹幕联调
+## 直接运行软件
 
-2026-07-15使用公开直播间`557481980778`运行89秒，接收并入库181条聊天弹幕，平台消息ID无重复，用户标识全部完成64位哈希
+便携版：
 
-待验证：30分钟和2小时稳定性测试
-
-## 运行环境
-
-- Windows
-- Node.js 24或兼容版本
-- MySQL 8.0
-- MySQL凭据保存在`C:\Users\<用户名>\.my.cnf`
-
-`.my.cnf`至少包含：
-
-```ini
-[client]
-host=localhost
-port=3306
-user=root
-password=本机密码
+```text
+release\DouyinLiveDashboard-0.1.0-x64.exe
 ```
 
-应用固定操作项目库`douyin_live_dashboard`，即使`.my.cnf`设置了其他默认数据库也不会采用
+该文件未使用商业代码签名证书，Windows 可能显示 SmartScreen 提示。应用仍需要本机存在：
 
-## 安装
+- MySQL 8.0
+- `C:\Users\<用户名>\.my.cnf` 数据库凭据
+
+## 开发运行
 
 ```powershell
 npm install
 npm run collector:install
-```
-
-采集侧车安装到`vendor/douyinlive/`，可执行文件被Git忽略，许可证和第三方声明保留在项目中
-
-## 命令
-
-初始化或升级项目数据库：
-
-```powershell
 npm run dev -- init-db
+npm run desktop:dev
 ```
 
-监控直播间：
+生产模式启动：
 
 ```powershell
-npm run dev -- monitor 直播间房间号
+npm run desktop:start
 ```
 
-也可传入直播间链接：
+重新生成便携版：
+
+```powershell
+npm run desktop:package
+```
+
+## 命令行采集与审计
 
 ```powershell
 npm run dev -- monitor https://live.douyin.com/房间号
-```
-
-受控联调时可设置自动停止时间：
-
-```powershell
 npm run dev -- monitor 房间号 --duration=90
-```
-
-按`Ctrl+C`停止监控，程序会刷新待写入弹幕并结算本次会话
-
-查看最近会话：
-
-```powershell
 npm run dev -- last-session
+npm run audit:session -- 房间号
 ```
 
-## 验证
-
-```powershell
-npm run typecheck
-npm test
-npm run test:db
-npm run build
-```
-
-`test:db`只操作项目专用库，会创建临时房间、会话和弹幕记录，验证去重后立即清理
+`audit:session`只输出会话级匿名聚合统计，不输出昵称或弹幕正文。
 
 ## 数据库
 
-MVP包含5张表：
+应用固定操作项目库`douyin_live_dashboard`。`.my.cnf`至少包含：
+
+```ini
+[client]
+host=数据库地址
+port=3306
+user=数据库用户
+password=数据库密码
+```
+
+数据表：
 
 - `schema_migrations`
 - `live_rooms`
@@ -103,16 +79,48 @@ MVP包含5张表：
 - `interaction_events`
 - `connection_intervals`
 
-数据库账号、密码、Cookie和token不得进入代码、日志或Git
+数据库迁移 v2 为互动事件增加`metrics_json`，保存点赞次数、在线人数、礼物名称/数量/钻石数等标准化指标。数据库密码、Cookie 和 token 不进入代码、日志或 Git。
+
+## 已完成验证
+
+### 2 小时稳定性
+
+- 房间：`557481980778`
+- 持续：125 分钟
+- 入库：35,637 条弹幕
+- 记录数与存储数一致，平台消息 ID 无重复
+- 用户标识全部哈希化
+- 每分钟均有数据，最大消息间隔 4.004 秒
+- 全程一个已连接区间，结束后无遗留开放连接
+
+### 扩展消息真实联调
+
+- 房间：`163788489151`
+- 持续：44 秒
+- 入库：133 条，消息 ID 133/133 唯一，标准化指标 133/133 完整
+- 进场 57、点赞消息 45、弹幕 14、在线序列 6、房间统计 6、分享 5
+- 点赞动作合计 346，峰值在线 1,680
+- 12 条无用户哈希记录全部为在线序列/房间统计系统消息
+
+礼物和关注在该 44 秒窗口内未自然发生，解析与指标提取由单元测试覆盖。部分直播间的礼物字段可能依赖登录 Cookie；当前匿名采集不在代码中配置 Cookie。
+
+## 验证命令
+
+```powershell
+npm run typecheck
+npm test
+npm run test:db
+npm run desktop:build
+```
+
+桌面端自动冒烟截图：`artifacts\ui-smoke.png`。
 
 ## 已知边界
 
-- 任意公开直播间采集依赖抖音非公开网页协议，签名和消息字段变化时需要更新采集侧车
-- 首版只持久化聊天弹幕，礼物、点赞、进场、关注和指标快照后续接入
-- 不保证消息零丢失，历史会话会保留完整性状态
-- 礼物数据可能需要登录Cookie，MVP不配置Cookie
-- 已验证聊天弹幕匿名采集可用，不需要登录Cookie
-- UI参考文件位于工作区根目录`抖音直播实时看板UI参考.jpg`，当前不实现UI
+- 采集依赖抖音非公开网页协议，签名或 protobuf 字段变化时需要更新侧车及解析映射
+- 当前问题队列是本地关键词规则，不是大模型语义分析
+- 便携版未签名，默认使用 Electron 图标
+- 为兼容当前 Windows 未开启符号链接权限的环境，便携包使用无 ASAR 构建
 
 ## 项目文档
 

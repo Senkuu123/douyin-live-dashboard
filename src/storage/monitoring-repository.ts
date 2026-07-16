@@ -11,6 +11,17 @@ export interface SessionContext {
   roomDbId: number;
 }
 
+export interface DashboardSnapshot {
+  session: Record<string, unknown> | null;
+  counts: Record<string, number>;
+  uniqueUsers: number;
+  reconnects: number;
+  online: number;
+  trend: Array<{ minute: string; chat: number; enter: number; like: number; gift: number }>;
+  recentEvents: Array<Record<string, unknown>>;
+  topChatters: Array<{ nickname: string; count: number }>;
+}
+
 export class MonitoringRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -94,7 +105,7 @@ export class MonitoringRepository {
 
   async saveEvents(context: SessionContext, events: StandardEvent[]): Promise<number> {
     if (events.length === 0) return 0;
-    const columnsPerRow = 14;
+    const columnsPerRow = 15;
     const placeholders = events.map(() => `(${new Array(columnsPerRow).fill("?").join(",")})`).join(",");
     const values = events.flatMap((event) => [
       event.eventId,
@@ -107,6 +118,7 @@ export class MonitoringRepository {
       event.userIdHash,
       event.nickname,
       event.content,
+      JSON.stringify(event.metrics),
       event.rawMethod,
       event.collectorVersion,
       JSON.stringify(event.payload),
@@ -119,7 +131,7 @@ export class MonitoringRepository {
       const [result] = await connection.execute<ResultSetHeader>(
         `INSERT IGNORE INTO interaction_events
          (event_id, platform_message_id, session_id, room_id, event_type, event_time,
-          received_at, user_id_hash, nickname, content, raw_method, collector_version,
+          received_at, user_id_hash, nickname, content, metrics_json, raw_method, collector_version,
           payload_json, created_at)
          VALUES ${placeholders}`,
         values
@@ -150,5 +162,79 @@ export class MonitoringRepository {
        LIMIT 1`
     );
     return rows[0] ?? null;
+  }
+
+  async dashboardSnapshot(): Promise<DashboardSnapshot> {
+    const [sessions] = await this.pool.query<RowDataPacket[]>(
+      `SELECT s.id, r.platform_room_id AS roomId, r.anchor_nickname AS anchorName,
+              r.title, r.status AS roomStatus, s.status, s.started_at AS startedAt,
+              s.ended_at AS endedAt, s.event_count AS eventCount
+       FROM monitoring_sessions s
+       JOIN live_rooms r ON r.id = s.room_id
+       WHERE s.event_count > 0
+       ORDER BY s.started_at DESC LIMIT 1`
+    );
+    const session = sessions[0];
+    if (!session) {
+      return { session: null, counts: {}, uniqueUsers: 0, reconnects: 0, online: 0, trend: [], recentEvents: [], topChatters: [] };
+    }
+    const sessionId = String(session.id);
+    const [[countRows], [userRows], [connectionRows], [metricRows], [trendRows], [recentRows], [topRows]] = await Promise.all([
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT event_type AS eventType,
+                SUM(CASE WHEN event_type = 'like'
+                    THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.count')) AS UNSIGNED), 1)
+                    ELSE 1 END) AS count
+         FROM interaction_events WHERE session_id = ? GROUP BY event_type`,
+        [sessionId]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        "SELECT COUNT(DISTINCT user_id_hash) AS count FROM interaction_events WHERE session_id = ? AND user_id_hash IS NOT NULL",
+        [sessionId]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        "SELECT GREATEST(COUNT(*) - 2, 0) AS count FROM connection_intervals WHERE session_id = ?",
+        [sessionId]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.online')) AS UNSIGNED), 0) AS online
+         FROM interaction_events WHERE session_id = ? AND event_type IN ('room_stats', 'audience')
+         ORDER BY received_at DESC LIMIT 1`,
+        [sessionId]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT DATE_FORMAT(received_at, '%Y-%m-%dT%H:%i:00Z') AS minute,
+                SUM(event_type = 'chat') AS chat, SUM(event_type = 'enter') AS enter,
+                SUM(event_type = 'like') AS likeCount, SUM(event_type = 'gift') AS gift
+         FROM interaction_events WHERE session_id = ? AND received_at >= UTC_TIMESTAMP() - INTERVAL 20 MINUTE
+         GROUP BY DATE_FORMAT(received_at, '%Y-%m-%dT%H:%i:00Z') ORDER BY minute`,
+        [sessionId]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT event_id AS eventId, event_type AS eventType, received_at AS receivedAt,
+                nickname, content, metrics_json AS metrics, payload_json AS payload
+         FROM interaction_events WHERE session_id = ? ORDER BY received_at DESC LIMIT 150`,
+        [sessionId]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT COALESCE(NULLIF(nickname, ''), '匿名用户') AS nickname, COUNT(*) AS count
+         FROM interaction_events WHERE session_id = ? AND event_type = 'chat'
+         GROUP BY user_id_hash, nickname ORDER BY count DESC LIMIT 8`,
+        [sessionId]
+      )
+    ]);
+    return {
+      session: { ...session },
+      counts: Object.fromEntries(countRows.map((row) => [String(row.eventType), Number(row.count)])),
+      uniqueUsers: Number(userRows[0]?.count ?? 0),
+      reconnects: Number(connectionRows[0]?.count ?? 0),
+      online: Number(metricRows[0]?.online ?? 0),
+      trend: trendRows.map((row) => ({
+        minute: String(row.minute), chat: Number(row.chat), enter: Number(row.enter),
+        like: Number(row.likeCount), gift: Number(row.gift)
+      })),
+      recentEvents: recentRows.map((row) => ({ ...row })),
+      topChatters: topRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count) }))
+    };
   }
 }

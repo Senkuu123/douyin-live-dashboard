@@ -9,6 +9,11 @@ import { resolveRoomInput } from "../utils/room-input.js";
 const FLUSH_INTERVAL_MS = 500;
 const FLUSH_BATCH_SIZE = 50;
 
+export interface MonitoringObserver {
+  onEvent?(event: StandardEvent): void;
+  onStatus?(status: { phase: string; roomId?: string; message?: string }): void;
+}
+
 export class MonitoringService {
   private readonly repository: MonitoringRepository;
   private readonly sidecar: SidecarManager;
@@ -18,8 +23,9 @@ export class MonitoringService {
     this.sidecar = new SidecarManager(config.collector);
   }
 
-  async run(input: string, signal: AbortSignal): Promise<void> {
+  async run(input: string, signal: AbortSignal, observer: MonitoringObserver = {}): Promise<void> {
     const roomId = await resolveRoomInput(input);
+    observer.onStatus?.({ phase: "starting", roomId });
     await this.sidecar.ensureRunning();
     const collectorVersion = await this.sidecar.version();
     const roomDbId = await this.repository.getOrCreateRoom(
@@ -50,9 +56,12 @@ export class MonitoringService {
           this.config.userHashSalt
         );
         for (const event of events) {
-          process.stdout.write(
-            `[${event.receivedAt.toLocaleTimeString()}] ${event.nickname ?? "匿名"}：${event.content ?? ""}\n`
-          );
+          if (event.eventType === "chat") {
+            process.stdout.write(
+              `[${event.receivedAt.toLocaleTimeString()}] ${event.nickname ?? "匿名"}：${event.content ?? ""}\n`
+            );
+          }
+          observer.onEvent?.(event);
           buffer.push(event);
         }
         if (buffer.length >= FLUSH_BATCH_SIZE) void flush().catch((error) => {
@@ -74,6 +83,7 @@ export class MonitoringService {
       await this.repository.closeConnectionInterval(intervalId, null, "connected");
       intervalId = await this.repository.openConnectionInterval(context.sessionId, "connected");
       await this.repository.setSessionStatus(context.sessionId, "collecting");
+      observer.onStatus?.({ phase: "collecting", roomId });
       process.stdout.write(`已连接直播间${roomId}，按Ctrl+C停止\n`);
 
       await new Promise<void>((resolve) => {
@@ -97,6 +107,7 @@ export class MonitoringService {
       await flush();
       await this.repository.closeConnectionInterval(intervalId, 1000, "user stop");
       await this.repository.finishSession(context.sessionId, "completed", "user_stop");
+      observer.onStatus?.({ phase: "stopped", roomId });
     } catch (error) {
       stopping = true;
       client.close();
@@ -104,6 +115,7 @@ export class MonitoringService {
       const message = error instanceof Error ? error.message : String(error);
       await this.repository.closeConnectionInterval(intervalId, null, message).catch(() => undefined);
       await this.repository.finishSession(context.sessionId, "failed", "collector_error", message);
+      observer.onStatus?.({ phase: "failed", roomId, message });
       throw error;
     } finally {
       clearInterval(flushTimer);
