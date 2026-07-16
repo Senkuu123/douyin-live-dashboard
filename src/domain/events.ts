@@ -137,10 +137,15 @@ function classifySocial(message: SidecarMessage): EventType {
 
 function extractMetrics(message: SidecarMessage, eventType: EventType): EventMetrics {
   const gift = isRecord(message.gift) ? message.gift : undefined;
+  const online = eventType === "audience"
+    ? firstNumber(message.online, message.userCount, message.memberCount, message.total)
+    : eventType === "room_stats"
+      ? firstNumber(message.online, message.userCount, message.memberCount)
+      : undefined;
   const metrics: EventMetrics = {
     count: firstNumber(message.count, message.repeatCount, message.comboCount),
     total: firstNumber(message.total, message.totalCount),
-    online: firstNumber(message.online, message.userCount, message.memberCount, message.total),
+    online,
     totalUsers: firstNumber(message.totalUser, message.totalUserCount, message.totalPvForAnchor),
     totalLikes: firstNumber(message.likeCount, message.totalLikeCount),
     userLevel: userIdentity(message).level,

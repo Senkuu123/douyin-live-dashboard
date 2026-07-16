@@ -61,6 +61,17 @@ describe("normalizeSidecarPayload", () => {
     });
   });
 
+  it("does not treat room cumulative total as current online", () => {
+    const events = normalizeSidecarPayload([
+      { common: { msgId: "r1" }, method: "WebcastRoomStatsMessage", total: "200000", totalUser: "200000" },
+      { common: { msgId: "a1" }, method: "WebcastRoomUserSeqMessage", total: "3825" }
+    ], "test", "salt");
+
+    expect(events[0]?.metrics).toMatchObject({ total: 200000, totalUsers: 200000 });
+    expect(events[0]?.metrics.online).toBeUndefined();
+    expect(events[1]?.metrics.online).toBe(3825);
+  });
+
   it("ignores sidecar system messages", () => {
     expect(
       normalizeSidecarPayload(

@@ -3,8 +3,10 @@ import type { DesktopApi, LiveEvent, MonitorStatus } from "./contracts.js";
 
 const api: DesktopApi = {
   snapshot: () => ipcRenderer.invoke("dashboard:snapshot"),
+  levelSummary: (minLevel) => ipcRenderer.invoke("dashboard:level-summary", minLevel),
   start: (input) => ipcRenderer.invoke("monitor:start", input),
   stop: () => ipcRenderer.invoke("monitor:stop"),
+  exportCsv: () => ipcRenderer.invoke("dashboard:export-csv"),
   onEvent: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: LiveEvent) => callback(payload);
     ipcRenderer.on("monitor:event", listener);

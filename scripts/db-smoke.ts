@@ -29,7 +29,7 @@ async function main(): Promise<void> {
       userIdHash: null,
       nickname: "smoke",
       content: "database smoke test",
-      metrics: {},
+      metrics: { userLevel: 28 },
       rawMethod: "WebcastChatMessage",
       collectorVersion: "smoke-test",
       payload: { smoke: true }
@@ -40,6 +40,18 @@ async function main(): Promise<void> {
     await repository.finishSession(context.sessionId, "completed", "smoke_test");
     if (first !== 1 || duplicate !== 0) {
       throw new Error(`dedup verification failed: first=${first}, duplicate=${duplicate}`);
+    }
+    const snapshot = await repository.dashboardSnapshot();
+    const exported = await repository.latestSessionExport();
+    const levelSummary = await repository.dashboardLevelSummary(20);
+    if (String(snapshot.session?.id) !== context.sessionId || snapshot.recentEvents.length !== 1) {
+      throw new Error("dashboard snapshot verification failed");
+    }
+    if (exported?.sessionId !== context.sessionId || exported.rows.length !== 1 || exported.rows[0]?.content !== event.content) {
+      throw new Error("session export verification failed");
+    }
+    if (levelSummary.counts.chat !== 1 || levelSummary.recentEvents.length !== 1 || levelSummary.topChatters[0]?.level !== 28) {
+      throw new Error("level filter verification failed");
     }
     process.stdout.write("database_smoke=passed\n");
 

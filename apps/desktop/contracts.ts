@@ -1,4 +1,4 @@
-import type { DashboardSnapshot } from "../../src/storage/monitoring-repository.js";
+import type { DashboardSnapshot, LevelDashboardSummary } from "../../src/storage/monitoring-repository.js";
 import type { EventMetrics, EventType } from "../../src/domain/events.js";
 
 export interface LiveEvent {
@@ -15,8 +15,10 @@ export interface MonitorStatus { phase: string; roomId?: string; message?: strin
 
 export interface DesktopApi {
   snapshot(): Promise<DashboardSnapshot>;
+  levelSummary(minLevel: number): Promise<LevelDashboardSummary>;
   start(input: string): Promise<{ roomId: string }>;
   stop(): Promise<void>;
+  exportCsv(): Promise<{ canceled: boolean; filePath?: string; rowCount?: number }>;
   onEvent(callback: (event: LiveEvent) => void): () => void;
   onStatus(callback: (status: MonitorStatus) => void): () => void;
 }

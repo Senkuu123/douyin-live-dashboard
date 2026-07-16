@@ -19,7 +19,21 @@ export interface DashboardSnapshot {
   online: number;
   trend: Array<{ minute: string; chat: number; enter: number; like: number; gift: number }>;
   recentEvents: Array<Record<string, unknown>>;
-  topChatters: Array<{ nickname: string; count: number }>;
+  topChatters: Array<{ nickname: string; count: number; level: number }>;
+}
+
+export interface SessionExport {
+  sessionId: string;
+  roomId: string;
+  rows: Array<Record<string, unknown>>;
+}
+
+export interface LevelDashboardSummary {
+  minLevel: number;
+  counts: Record<string, number>;
+  uniqueUsers: number;
+  recentEvents: Array<Record<string, unknown>>;
+  topChatters: Array<{ nickname: string; count: number; level: number }>;
 }
 
 export class MonitoringRepository {
@@ -206,18 +220,20 @@ export class MonitoringRepository {
         `SELECT DATE_FORMAT(received_at, '%Y-%m-%dT%H:%i:00Z') AS minute,
                 SUM(event_type = 'chat') AS chat, SUM(event_type = 'enter') AS enter,
                 SUM(event_type = 'like') AS likeCount, SUM(event_type = 'gift') AS gift
-         FROM interaction_events WHERE session_id = ? AND received_at >= UTC_TIMESTAMP() - INTERVAL 20 MINUTE
+         FROM interaction_events WHERE session_id = ? AND received_at >=
+           (SELECT MAX(received_at) FROM interaction_events WHERE session_id = ?) - INTERVAL 20 MINUTE
          GROUP BY DATE_FORMAT(received_at, '%Y-%m-%dT%H:%i:00Z') ORDER BY minute`,
-        [sessionId]
+        [sessionId, sessionId]
       ),
       this.pool.execute<RowDataPacket[]>(
         `SELECT event_id AS eventId, event_type AS eventType, received_at AS receivedAt,
-                nickname, content, metrics_json AS metrics, payload_json AS payload
-         FROM interaction_events WHERE session_id = ? ORDER BY received_at DESC LIMIT 150`,
+                user_id_hash AS userIdHash, nickname, content, metrics_json AS metrics
+         FROM interaction_events WHERE session_id = ? ORDER BY received_at DESC LIMIT 1000`,
         [sessionId]
       ),
       this.pool.execute<RowDataPacket[]>(
-        `SELECT COALESCE(NULLIF(nickname, ''), '匿名用户') AS nickname, COUNT(*) AS count
+        `SELECT COALESCE(NULLIF(nickname, ''), '匿名用户') AS nickname, COUNT(*) AS count,
+                MAX(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.userLevel')) AS UNSIGNED), 0)) AS level
          FROM interaction_events WHERE session_id = ? AND event_type = 'chat'
          GROUP BY user_id_hash, nickname ORDER BY count DESC LIMIT 8`,
         [sessionId]
@@ -234,7 +250,76 @@ export class MonitoringRepository {
         like: Number(row.likeCount), gift: Number(row.gift)
       })),
       recentEvents: recentRows.map((row) => ({ ...row })),
-      topChatters: topRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count) }))
+      topChatters: topRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count), level: Number(row.level ?? 0) }))
+    };
+  }
+
+  async latestSessionExport(): Promise<SessionExport | null> {
+    const [sessions] = await this.pool.query<RowDataPacket[]>(
+      `SELECT s.id, r.platform_room_id AS roomId
+       FROM monitoring_sessions s
+       JOIN live_rooms r ON r.id = s.room_id
+       ORDER BY s.started_at DESC LIMIT 1`
+    );
+    const session = sessions[0];
+    if (!session) return null;
+    const sessionId = String(session.id);
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT event_id AS eventId, platform_message_id AS platformMessageId,
+              event_type AS eventType, event_time AS eventTime, received_at AS receivedAt,
+              user_id_hash AS userIdHash, nickname, content, metrics_json AS metrics,
+              raw_method AS rawMethod, collector_version AS collectorVersion
+       FROM interaction_events WHERE session_id = ? ORDER BY received_at, id`,
+      [sessionId]
+    );
+    return { sessionId, roomId: String(session.roomId), rows: rows.map((row) => ({ ...row })) };
+  }
+
+  async dashboardLevelSummary(minLevel: number): Promise<LevelDashboardSummary> {
+    const normalizedLevel = Math.max(0, Math.min(60, Math.floor(minLevel)));
+    const [sessions] = await this.pool.query<RowDataPacket[]>(
+      "SELECT id FROM monitoring_sessions ORDER BY started_at DESC LIMIT 1"
+    );
+    const sessionId = sessions[0]?.id ? String(sessions[0].id) : null;
+    if (!sessionId) return { minLevel: normalizedLevel, counts: {}, uniqueUsers: 0, recentEvents: [], topChatters: [] };
+    const levelExpression = "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.userLevel')) AS UNSIGNED), 0)";
+    const [[countRows], [userRows], [recentRows], [topRows]] = await Promise.all([
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT event_type AS eventType,
+                SUM(CASE WHEN event_type = 'like'
+                    THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.count')) AS UNSIGNED), 1)
+                    WHEN event_type = 'gift'
+                    THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.giftCount')) AS UNSIGNED), 1)
+                    ELSE 1 END) AS count
+         FROM interaction_events WHERE session_id = ? AND ${levelExpression} >= ? GROUP BY event_type`,
+        [sessionId, normalizedLevel]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT COUNT(DISTINCT user_id_hash) AS count FROM interaction_events
+         WHERE session_id = ? AND user_id_hash IS NOT NULL AND ${levelExpression} >= ?`,
+        [sessionId, normalizedLevel]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT event_id AS eventId, event_type AS eventType, received_at AS receivedAt,
+                user_id_hash AS userIdHash, nickname, content, metrics_json AS metrics
+         FROM interaction_events WHERE session_id = ? AND ${levelExpression} >= ?
+         ORDER BY received_at DESC LIMIT 5000`,
+        [sessionId, normalizedLevel]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT COALESCE(NULLIF(nickname, ''), '匿名用户') AS nickname, COUNT(*) AS count,
+                MAX(${levelExpression}) AS level
+         FROM interaction_events WHERE session_id = ? AND event_type = 'chat' AND ${levelExpression} >= ?
+         GROUP BY user_id_hash, nickname ORDER BY count DESC LIMIT 10`,
+        [sessionId, normalizedLevel]
+      )
+    ]);
+    return {
+      minLevel: normalizedLevel,
+      counts: Object.fromEntries(countRows.map((row) => [String(row.eventType), Number(row.count)])),
+      uniqueUsers: Number(userRows[0]?.count ?? 0),
+      recentEvents: recentRows.map((row) => ({ ...row })),
+      topChatters: topRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count), level: Number(row.level ?? 0) }))
     };
   }
 }
