@@ -41,11 +41,17 @@ describe("dashboard model", () => {
   it("classifies high-value gifts, high-level entries and issue groups", () => {
     const gift = event({ eventType: "gift", metrics: { diamondCount: 60, giftCount: 2 } });
     const entry = event({ eventType: "enter", metrics: { userLevel: 28 } });
-    const question = event({ content: "这个多少钱，链接在哪？" });
+    const priceQuestion = event({ content: "这个优惠券后多少钱？" });
+    const linkQuestion = event({ content: "3号链接在哪里拍？", userIdHash: "u2" });
+    const otherQuestion = event({ content: "主播今天几点下播？", userIdHash: "u3" });
 
     expect(highValueGifts([gift])).toEqual([gift]);
     expect(highLevelEntries([entry, entry])).toHaveLength(1);
-    expect(groupIssues([question]).map((item) => item.key)).toEqual(["price", "link"]);
+    expect(groupIssues([priceQuestion, linkQuestion, otherQuestion])).toMatchObject([
+      { title: "这个优惠券后多少钱？", label: "优惠活动" },
+      { title: "3号链接在哪里拍？", label: "商品链接" },
+      { title: "主播今天几点下播？", label: "其他问题" }
+    ]);
   });
 
   it("provides stable score, level tiers and event filters", () => {

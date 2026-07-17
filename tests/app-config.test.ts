@@ -14,4 +14,10 @@ describe("database guard", () => {
     expect(loadConfig({}, { user: "root", password: "from-my-cnf" }).database.password).toBe("from-my-cnf");
     expect(() => loadConfig({}, {})).toThrow(/本机数据库凭据/);
   });
+
+  it("passes an optional Base64URL Douyin Cookie only through collector config", () => {
+    const config = loadConfig({ DB_PASSWORD: "secret", DOUYIN_COOKIE_B64: "dHR3aWQ9dGVzdA" }, {});
+    expect(config.collector.cookieBase64Url).toBe("dHR3aWQ9dGVzdA");
+    expect(config.database.password).toBe("secret");
+  });
 });

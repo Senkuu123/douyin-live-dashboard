@@ -32,7 +32,8 @@ export class SidecarClient {
   }
 
   connect(): Promise<void> {
-    const url = `ws://${this.config.host}:${this.config.port}/ws/${encodeURIComponent(this.roomId)}`;
+    const url = new URL(`ws://${this.config.host}:${this.config.port}/ws/${encodeURIComponent(this.roomId)}`);
+    if (this.config.cookieBase64Url) url.searchParams.set("cookie_b64", this.config.cookieBase64Url);
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(url);
       this.socket = socket;

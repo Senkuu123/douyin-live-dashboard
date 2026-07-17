@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -44,7 +44,7 @@ async function createWindow(): Promise<void> {
     await mkdir(outputDir, { recursive: true });
     try {
       await new Promise((resolve) => setTimeout(resolve, 1200));
-      const summary = await mainWindow.webContents.executeJavaScript(`({ ok: true, panels: document.querySelectorAll('.panel').length, metrics: document.querySelectorAll('.metric-card').length, title: document.title, body: document.body.innerText.slice(0, 200) })`);
+      const summary = await mainWindow.webContents.executeJavaScript(`({ ok: true, panels: document.querySelectorAll('.panel').length, metrics: document.querySelectorAll('.metric-card').length, title: document.title, body: document.body.innerText.slice(0, 200), factors: [...document.querySelectorAll('.factor')].map(el => ({ label: el.querySelector('b')?.textContent, value: el.querySelector('strong')?.textContent, display: getComputedStyle(el).display, width: Math.round(el.getBoundingClientRect().width), height: Math.round(el.getBoundingClientRect().height) })) })`);
       const image = await mainWindow.webContents.capturePage();
       await mainWindow.webContents.executeJavaScript(`document.getElementById('levelFilterButton')?.click()`);
       await new Promise((resolve) => setTimeout(resolve, 150));
@@ -71,13 +71,17 @@ async function createWindow(): Promise<void> {
 
 app.whenReady().then(async () => {
   if (app.isPackaged) process.env.COLLECTOR_BINARY = path.join(process.resourcesPath, "vendor", "douyinlive", "douyinLive.exe");
-  loadLocalEnvironment();
+  const localEnvironmentPath = app.isPackaged
+    ? path.join(process.env.PORTABLE_EXECUTABLE_DIR ?? path.dirname(process.execPath), ".env.local")
+    : path.resolve(process.cwd(), ".env.local");
+  loadLocalEnvironment(localEnvironmentPath);
   const config = loadConfig();
   pool = createPool(config.database);
   await migrate(pool);
   const repository = new MonitoringRepository(pool);
 
   ipcMain.handle("dashboard:snapshot", () => repository.dashboardSnapshot());
+  ipcMain.handle("clipboard:read-text", () => clipboard.readText());
   ipcMain.handle("dashboard:level-summary", (_event, minLevel: number) => repository.dashboardLevelSummary(minLevel));
   ipcMain.handle("dashboard:export-csv", async () => {
     const data = await repository.latestSessionExport();

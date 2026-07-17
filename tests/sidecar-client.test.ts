@@ -21,8 +21,9 @@ describe("SidecarClient", () => {
 
     const systems: unknown[] = [];
     const payloads: unknown[] = [];
+    let requestUrl = "";
     const client = new SidecarClient(
-      { binaryPath: "unused", host: "127.0.0.1", port: address.port },
+      { binaryPath: "unused", host: "127.0.0.1", port: address.port, cookieBase64Url: "dHR3aWQ9dGVzdA" },
       "123",
       {
         onSystem: (message) => systems.push(message),
@@ -31,7 +32,8 @@ describe("SidecarClient", () => {
       }
     );
 
-    server.once("connection", (socket) => {
+    server.once("connection", (socket, request) => {
+      requestUrl = request.url ?? "";
       socket.send(JSON.stringify({ type: "system", code: "ROOM_ONLINE" }));
       socket.send(JSON.stringify({ method: "WebcastChatMessage", content: "hello" }));
     });
@@ -42,5 +44,6 @@ describe("SidecarClient", () => {
 
     expect(systems).toHaveLength(1);
     expect(payloads).toHaveLength(1);
+    expect(new URL(requestUrl, "ws://localhost").searchParams.get("cookie_b64")).toBe("dHR3aWQ9dGVzdA");
   });
 });

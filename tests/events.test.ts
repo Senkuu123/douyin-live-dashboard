@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSidecarPayload } from "../src/domain/events.js";
+import { extractSidecarRoomMetadata, normalizeSidecarPayload } from "../src/domain/events.js";
 
 describe("normalizeSidecarPayload", () => {
   it("normalizes supported messages and hashes user identifiers", () => {
@@ -59,6 +59,15 @@ describe("normalizeSidecarPayload", () => {
       content: "测试弹幕",
       collectorVersion: "v2.0.24"
     });
+  });
+
+  it("prefers the distinct webcast user id and extracts room metadata", () => {
+    const first = { method: "WebcastChatMessage", user: { id: "constant", idStr: "constant", webcastUid: "viewer-a", nickname: "甲" }, title: "直播标题", livename: "主播", content: "你好" };
+    const second = { method: "WebcastMemberMessage", user: { id: "constant", idStr: "constant", webcastUid: "viewer-b", nickname: "乙" }, title: "直播标题", livename: "主播" };
+    const events = normalizeSidecarPayload([first, second], "test", "salt");
+
+    expect(events[0]?.userIdHash).not.toBe(events[1]?.userIdHash);
+    expect(extractSidecarRoomMetadata([first, second])).toEqual({ title: "直播标题", liveName: "主播" });
   });
 
   it("does not treat room cumulative total as current online", () => {

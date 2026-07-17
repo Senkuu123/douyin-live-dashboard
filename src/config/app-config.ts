@@ -16,6 +16,7 @@ export interface AppConfig {
     binaryPath: string;
     host: string;
     port: number;
+    cookieBase64Url?: string;
   };
   userHashSalt: string;
 }
@@ -63,7 +64,8 @@ export function loadConfig(
         env.COLLECTOR_BINARY ??
         path.resolve(process.cwd(), "vendor", "douyinlive", "douyinLive.exe"),
       host: env.COLLECTOR_HOST ?? "127.0.0.1",
-      port: parsePort(env.COLLECTOR_PORT, 1088, "COLLECTOR_PORT")
+      port: parsePort(env.COLLECTOR_PORT, 1088, "COLLECTOR_PORT"),
+      cookieBase64Url: env.DOUYIN_COOKIE_B64?.trim() || undefined
     },
     userHashSalt: env.USER_HASH_SALT ?? ""
   };

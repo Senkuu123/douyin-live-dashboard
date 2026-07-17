@@ -2,7 +2,7 @@ import type { Pool } from "mysql2/promise";
 import { SidecarClient, type SidecarSystemMessage } from "../collector/sidecar-client.js";
 import { SidecarManager } from "../collector/sidecar-manager.js";
 import type { AppConfig } from "../config/app-config.js";
-import { normalizeSidecarPayload, type StandardEvent } from "../domain/events.js";
+import { extractSidecarRoomMetadata, normalizeSidecarPayload, type StandardEvent } from "../domain/events.js";
 import { MonitoringRepository, type SessionContext } from "../storage/monitoring-repository.js";
 import { resolveRoomInput } from "../utils/room-input.js";
 
@@ -11,7 +11,7 @@ const FLUSH_BATCH_SIZE = 50;
 
 export interface MonitoringObserver {
   onEvent?(event: StandardEvent): void;
-  onStatus?(status: { phase: string; roomId?: string; message?: string }): void;
+  onStatus?(status: { phase: string; roomId?: string; message?: string; title?: string; anchorName?: string }): void;
 }
 
 export class MonitoringService {
@@ -37,6 +37,8 @@ export class MonitoringService {
     let buffer: StandardEvent[] = [];
     let stopping = false;
     let fatalError: Error | null = null;
+    let lastTitle: string | undefined;
+    let lastLiveName: string | undefined;
 
     const flush = async () => {
       if (buffer.length === 0) return;
@@ -50,6 +52,15 @@ export class MonitoringService {
 
     const client = new SidecarClient(this.config.collector, roomId, {
       onPayload: (payload) => {
+        const metadata = extractSidecarRoomMetadata(payload);
+        if ((metadata.title && metadata.title !== lastTitle) || (metadata.liveName && metadata.liveName !== lastLiveName)) {
+          lastTitle = metadata.title ?? lastTitle;
+          lastLiveName = metadata.liveName ?? lastLiveName;
+          void this.repository.updateRoomStatus(roomDbId, "online", lastLiveName, lastTitle).catch((error) => {
+            fatalError = error instanceof Error ? error : new Error(String(error));
+          });
+          observer.onStatus?.({ phase: "collecting", roomId, title: lastTitle, anchorName: lastLiveName });
+        }
         const events = normalizeSidecarPayload(
           payload,
           collectorVersion,
@@ -68,9 +79,20 @@ export class MonitoringService {
           fatalError = error instanceof Error ? error : new Error(String(error));
         });
       },
-      onSystem: (message) => void this.handleSystemMessage(context, roomDbId, message).catch((error) => {
-        fatalError = error instanceof Error ? error : new Error(String(error));
-      }),
+      onSystem: (message) => {
+        lastTitle = message.title ?? lastTitle;
+        lastLiveName = message.live_name ?? lastLiveName;
+        observer.onStatus?.({
+          phase: message.code === "ROOM_OFFLINE" || message.code === "ROOM_ENDED" ? "waiting" : "collecting",
+          roomId,
+          message: message.message,
+          title: lastTitle,
+          anchorName: lastLiveName
+        });
+        void this.handleSystemMessage(context, roomDbId, message).catch((error) => {
+          fatalError = error instanceof Error ? error : new Error(String(error));
+        });
+      },
       onClose: (code, reason) => {
         if (!stopping) {
           fatalError = new Error(`采集连接关闭，code=${code}，reason=${reason || "unknown"}`);

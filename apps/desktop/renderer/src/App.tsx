@@ -174,7 +174,13 @@ function App() {
         return [...next.values()].sort((a, b) => b.count - a.count).slice(0, 10);
       });
     });
-    const offStatus = window.dashboard.onStatus((next) => { setStatus(next); if (next.phase === "stopped" || next.phase === "failed") setEndedAt(Date.now()); });
+    const offStatus = window.dashboard.onStatus((next) => {
+      setStatus(next);
+      if (next.title || next.anchorName || next.roomId) {
+        setSession((current) => ({ ...(current ?? {}), ...(next.roomId ? { roomId: next.roomId } : {}), ...(next.title ? { title: next.title } : {}), ...(next.anchorName ? { anchorName: next.anchorName } : {}) }));
+      }
+      if (next.phase === "stopped" || next.phase === "failed") setEndedAt(Date.now());
+    });
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => { offEvent(); offStatus(); clearInterval(timer); };
   }, []);
@@ -260,9 +266,9 @@ function App() {
 
   async function pasteRoom(): Promise<void> {
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await window.dashboard.readClipboard();
       const match = text.match(/(?:live\.douyin\.com\/)?(\d{5,20})/);
-      if (match) setRoomInput(match[1]!); else setToast("未识别到房间号");
+      if (match) { setRoomInput(match[1]!); setToast("已粘贴房间号"); } else setToast("剪贴板中未识别到抖音房间号");
     } catch { setToast("当前未授权读取剪贴板"); }
   }
 
@@ -289,7 +295,7 @@ function App() {
   const modalRows = modalType === "gift" ? highGifts.map((event) => [event.nickname ?? "匿名用户", event.metrics.giftName ?? "礼物", `×${event.metrics.giftCount ?? 1}　价值${Number(event.metrics.diamondCount ?? 0) * Number(event.metrics.giftCount ?? 1)}钻石`, time(event.receivedAt)])
     : modalType === "level" ? highLevels.map((event) => [event.nickname ?? "匿名用户", `Lv${event.metrics.userLevel ?? 0}`, event.content ?? "进入直播间", time(event.receivedAt)])
       : modalType === "negative" ? negatives.map((event) => [event.nickname ?? "匿名用户", event.content ?? "负面反馈", "负面词命中", time(event.receivedAt)])
-        : modalType === "issues" ? issues.map((issue) => [issue.title, issue.label, `${issue.count}次 · ${issue.latestContent}`, time(issue.latestAt)])
+        : modalType === "issues" ? issues.map((issue) => [issue.title, issue.label, `${issue.count}次 · ${issue.latestUser}`, time(issue.latestAt)])
           : modalType === "actions" ? actionItems.map((item) => [item.title, item.body, item.suggestion, time(item.at)]) : [];
   const modalTitle = modalType === "gift" ? "高价值礼物明细" : modalType === "level" ? "高等级用户进场明细" : modalType === "negative" ? "负面词详情" : modalType === "issues" ? "完整问题列表" : "完整行动提示列表";
   const modalColumns = modalType === "gift" ? ["送出用户", "礼物", "数量与价值", "时间"] : modalType === "level" ? ["用户", "等级", "进场动作", "时间"] : modalType === "negative" ? ["用户", "最近内容", "类型", "时间"] : modalType === "issues" ? ["问题", "标签", "出现情况", "时间"] : ["提示类型", "触发内容", "建议动作", "时间"];
@@ -297,7 +303,7 @@ function App() {
   return <main className="app-shell">
     <header className="topbar">
       <div className="brand"><span className="brand-mark"/><strong>抖音直播·指挥舱</strong></div>
-      <div className="top-field room-field"><label>房间号</label><input value={roomInput} onChange={(event) => setRoomInput(event.target.value.replace(/\D/g, ""))} disabled={isRunning}/><button className="icon-button" onClick={pasteRoom} title="粘贴房间号"><Icon name="paste"/></button></div>
+      <div className="top-field room-field"><label>房间号</label><input value={roomInput} onChange={(event) => setRoomInput(event.target.value.replace(/\D/g, ""))} disabled={isRunning}/><button className="icon-button" onClick={pasteRoom} disabled={isRunning} title={isRunning ? "采集中不可更换房间" : "从剪贴板粘贴房间号或直播间链接"} aria-label="粘贴房间号"><Icon name="paste"/></button></div>
       <div className="top-field title-field"><label>直播间标题</label><span>{latestTitle}</span></div>
       <div className="top-spacer"/>
       <div className="status-meta"><i className={`status-dot ${isRunning ? "on" : ""}`}/><em>{statusText}</em><span className="meta-sep"/><span>已连接</span><b>{duration}</b><span>重连 {reconnects} 次</span><span>最后更新</span><b>{lastUpdatedAt ? time(lastUpdatedAt) : "--:--:--"}</b></div>
@@ -314,7 +320,7 @@ function App() {
         <div className="health-note">建议：{negatives.length ? "及时回应负面反馈，保持互动节奏。" : "保持互动引导，关注礼物转化和高等级用户进场。"}</div>
         <div className="health-factors">
           <button className="factor gift" onClick={() => setModalType("gift")}><Icon name="gift"/><span><b>高价值礼物数</b><small>评分贡献 +{Math.min(8, highGifts.length * 4)}</small></span><strong>{highGifts.length}件</strong></button>
-          <button className="factor level" onClick={() => setModalType("level")}><Icon name="enter"/><span><b>高等级用户进场</b><small>评分贡献 +{Math.min(8, highLevels.length * 2)}</small></span><strong>{highLevels.length}人</strong></button>
+          <button className="factor high-level-factor" onClick={() => setModalType("level")}><Icon name="enter"/><span><b>高等级用户进场</b><small>评分贡献 +{Math.min(8, highLevels.length * 2)}</small></span><strong>{highLevels.length}人</strong></button>
           <button className="factor negative" onClick={() => setModalType("negative")}><span className="warning-icon">!</span><span><b>负面词出现</b><small>评分扣减 -{Math.min(20, negatives.length * 2)}</small></span><strong>{negatives.length}次</strong></button>
         </div>
       </Panel>
@@ -341,7 +347,7 @@ function App() {
       </Panel>
 
       <Panel title="问题队列" kicker="需关注" icon="issue" className="issues-panel" actions={<span>{issues.length}个问题</span>}>
-        <div className="issues-list">{issues.map((issue) => <div className="issue-card" key={issue.key}><div><b>{issue.title}</b><strong>{issue.label}</strong><em>{issue.severity}</em></div><p><span>出现{issue.count}次</span><time>最近{time(issue.latestAt)}</time></p><small>用户：{issue.latestContent}</small></div>)}{!issues.length && <div className="empty">未识别到集中问题</div>}</div>
+        <div className="issues-list">{issues.map((issue) => <div className="issue-card" key={issue.key}><div><b title={issue.title}>{issue.title}</b><strong>{issue.label}</strong><em>{issue.severity}</em></div><p><span>出现{issue.count}次</span><time>最近{time(issue.latestAt)}</time></p><small>用户：{issue.latestUser}</small></div>)}{!issues.length && <div className="empty">未识别到直播间问题</div>}</div>
         <button className="more-button" onClick={() => setModalType("issues")}>查看更多问题⌄</button>
       </Panel>
 

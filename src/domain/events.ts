@@ -122,10 +122,27 @@ function parseEventTime(value: unknown, fallback: Date): Date {
 function userIdentity(message: SidecarMessage): { id?: string; nickname?: string; level?: number } {
   const user = isRecord(message.user) ? message.user : undefined;
   return {
-    id: firstString(user?.secUid, user?.idStr, user?.id, user?.shortId),
+    // The sidecar currently emits a room-scoped constant in `id`/`idStr` for
+    // some anonymous sessions. `webcastUid` remains distinct per viewer and
+    // must take precedence or every viewer collapses into one unique user.
+    id: firstString(user?.secUid, user?.webcastUid, user?.idStr, user?.id, user?.shortId),
     nickname: firstString(user?.nickname, user?.name),
     level: firstNumber(nested(user, "payGrade", "level"), nested(user, "fansClub", "data", "level"))
   };
+}
+
+export interface SidecarRoomMetadata {
+  title?: string;
+  liveName?: string;
+}
+
+export function extractSidecarRoomMetadata(payload: unknown): SidecarRoomMetadata {
+  for (const message of asMessageArray(payload)) {
+    const title = firstString(message.title);
+    const liveName = firstString(message.livename, message.liveName);
+    if (title || liveName) return { title, liveName };
+  }
+  return {};
 }
 
 function classifySocial(message: SidecarMessage): EventType {

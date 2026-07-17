@@ -6,6 +6,7 @@ const api: DesktopApi = {
   levelSummary: (minLevel) => ipcRenderer.invoke("dashboard:level-summary", minLevel),
   start: (input) => ipcRenderer.invoke("monitor:start", input),
   stop: () => ipcRenderer.invoke("monitor:stop"),
+  readClipboard: () => ipcRenderer.invoke("clipboard:read-text"),
   exportCsv: () => ipcRenderer.invoke("dashboard:export-csv"),
   onEvent: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: LiveEvent) => callback(payload);

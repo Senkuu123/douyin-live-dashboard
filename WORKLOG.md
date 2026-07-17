@@ -180,3 +180,16 @@
 - 新增看板模型与CSV测试，扩展在线口径和数据库冒烟；7个测试文件共16个单测、类型检查、数据库冒烟和Electron生产截图通过
 - 验收截图为`artifacts/ui-smoke.png`、`artifacts/ui-level-filter.png`、`artifacts/ui-level-filter-applied.png`
 - 生成新版Windows便携版`release/DouyinLiveDashboard-0.1.0-x64.exe`，大小92,248,913字节，便携版冒烟退出码为0
+
+## 2026-07-16 19:50
+
+- 定位独立用户固定为1的根因：侧车匿名会话中的`user.id/idStr`为房间级常量，改为优先使用每位观众不同的`user.webcastUid`并继续SHA-256哈希入库
+- 从互动载荷的`title/livename`实时提取房间元数据，采集中同步回写数据库并推送到桌面端，修复标题长期显示等待获取
+- 定位高等级用户进场子卡错位根因：按钮类名`level`与等级徽标全局样式冲突；更名后恢复三列等宽Grid和右侧人数
+- 房间号粘贴改用Electron原生剪贴板IPC，支持直接识别房间号或完整直播间链接，并补充成功、失败及采集中禁用反馈
+- 问题队列改为弹幕原文标题，按优惠、价格、链接、库存、物流、售后、质量、使用、规格、赠品、直播体验等固定关键词分类，未命中类别的提问归为其他问题
+- 礼物链路确认数据库历史未收到`WebcastGiftMessage`；增加本机`.env.local`的`DOUYIN_COOKIE_B64`安全登录态注入，真实送礼验收等待本机配置Cookie
+- 使用房间`163788489151`完成45秒真实联调，入库181条事件；159条带用户事件识别出138位独立用户，标题和主播名正确回写
+- 类型检查、7个测试文件共18个单测和Electron生产截图通过；截图为`artifacts/ui-smoke.png`
+- 重新生成Windows便携版`release/DouyinLiveDashboard-0.1.0-x64.exe`，大小92,250,443字节
+- 便携版通过`PORTABLE_EXECUTABLE_DIR`从EXE同目录读取`.env.local`，避免双击启动时当前工作目录变化导致Cookie配置失效
