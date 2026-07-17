@@ -71,11 +71,13 @@ export function loadConfig(
   };
 }
 
-export function loadLocalEnvironment(file = path.resolve(process.cwd(), ".env.local")): void {
+export function loadLocalEnvironment(file = path.resolve(process.cwd(), ".env.local")): boolean {
   try {
     loadEnvFile(file);
+    return true;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") throw error;
+    return false;
   }
 }

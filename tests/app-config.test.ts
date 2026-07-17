@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertProjectDatabase, loadConfig, PROJECT_DATABASE } from "../src/config/app-config.js";
+import { assertProjectDatabase, loadConfig, loadLocalEnvironment, PROJECT_DATABASE } from "../src/config/app-config.js";
 
 describe("database guard", () => {
   it("accepts only the project database", () => {
@@ -19,5 +19,9 @@ describe("database guard", () => {
     const config = loadConfig({ DB_PASSWORD: "secret", DOUYIN_COOKIE_B64: "dHR3aWQ9dGVzdA" }, {});
     expect(config.collector.cookieBase64Url).toBe("dHR3aWQ9dGVzdA");
     expect(config.database.password).toBe("secret");
+  });
+
+  it("reports a missing local environment file so callers can use a safe fallback", () => {
+    expect(loadLocalEnvironment("Z:\\missing-douyin-dashboard-env\\.env.local")).toBe(false);
   });
 });

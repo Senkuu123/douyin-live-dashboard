@@ -92,7 +92,7 @@ password=数据库密码
 
 1. 在已登录抖音网页版的浏览器开发者工具中，复制任意`live.douyin.com`请求的完整`Cookie`请求头。
 2. 将 Cookie 编码为 Base64URL。
-3. 开发运行时把`.env.example`复制为项目根目录`.env.local`；使用便携版时，在EXE同目录新建`.env.local`。把编码结果填入`DOUYIN_COOKIE_B64`。
+3. 开发运行时把`.env.example`复制为项目根目录`.env.local`；使用便携版时，在EXE同目录新建`.env.local`。把编码结果填入`DOUYIN_COOKIE_B64`。CLI在项目根目录没有`.env.local`时，也会回退读取`release/.env.local`，保证联调与便携版使用同一登录态。
 4. 完全退出并重新启动桌面程序，再用实际送礼验证`WebcastGiftMessage`。
 
 `.env.local`已在`.gitignore`中。不要把 Cookie 发到聊天、截图、日志或提交记录中。

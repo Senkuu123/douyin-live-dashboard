@@ -1,3 +1,4 @@
+import path from "node:path";
 import { loadConfig, loadLocalEnvironment } from "./config/app-config.js";
 import { MonitoringService } from "./services/monitoring-service.js";
 import { createPool, createProjectDatabase, migrate } from "./storage/database.js";
@@ -13,7 +14,13 @@ async function main(): Promise<void> {
   const [command, argument] = process.argv.slice(2);
   if (!command) usage();
 
-  loadLocalEnvironment();
+  const projectEnvironmentLoaded = loadLocalEnvironment();
+  if (!projectEnvironmentLoaded) {
+    // The portable app keeps its local credentials beside the EXE. Reuse that
+    // ignored file for CLI diagnostics so the two launch modes cannot silently
+    // test different collector login states.
+    loadLocalEnvironment(path.resolve(process.cwd(), "release", ".env.local"));
+  }
   const config = loadConfig();
   await createProjectDatabase(config.database);
   const pool = createPool(config.database);
