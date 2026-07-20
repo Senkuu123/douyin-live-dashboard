@@ -267,6 +267,16 @@ CSV中不会包含原始用户ID
 
 部分直播间的匿名连接不会返回礼物消息。这种情况可以给采集组件提供本机抖音登录态
 
+仓库提供了[Cookie转Base64URL工具](scripts/cookie_to_base64url.py)，用于把浏览器Cookie转换为软件需要的Base64URL格式。脚本只使用Python标准库，输入内容不会显示在终端，也不会写入文件
+
+在仓库根目录运行：
+
+```powershell
+python scripts/cookie_to_base64url.py
+```
+
+按提示粘贴Cookie并回车，将输出结果填入下方`DOUYIN_COOKIE_B64`。Base64URL只是编码，不会加密Cookie，转换结果仍应按敏感凭据保管
+
 在EXE同目录创建`.env.local`：
 
 ```dotenv

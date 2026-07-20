@@ -279,3 +279,9 @@
 - 保存GitHub发布快照；远端`main`最新提交为`78c0911`（`Update README.md`）。
 - GitHub仓库已存在`v0.1.0`标签，保留用户在GitHub网页手动更新的根目录README，不从本地覆盖。
 - 本地提交仅归档GitHub用户版README草稿和本次工作记录。
+
+## 2026-07-19 21:17
+
+- 将工作区根目录的`cookie 转 Base64URL.py`移入项目`scripts/cookie_to_base64url.py`，统一使用英文小写下划线命名。
+- 删除硬编码示例，改为终端隐藏输入Cookie；脚本只输出Base64URL结果，不写入文件，也不依赖第三方库。
+- 在GitHub用户版README的礼物采集排查章节补充脚本用途、运行命令、配置位置和凭据安全说明。
