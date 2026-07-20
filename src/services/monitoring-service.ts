@@ -2,7 +2,7 @@ import type { Pool } from "mysql2/promise";
 import { SidecarClient, type SidecarSystemMessage } from "../collector/sidecar-client.js";
 import { SidecarManager } from "../collector/sidecar-manager.js";
 import type { AppConfig } from "../config/app-config.js";
-import { extractSidecarRoomMetadata, normalizeSidecarPayload, type StandardEvent } from "../domain/events.js";
+import { applyGiftComboDelta, extractSidecarRoomMetadata, normalizeSidecarPayload, type StandardEvent } from "../domain/events.js";
 import { MonitoringRepository, type SessionContext } from "../storage/monitoring-repository.js";
 import { resolveRoomInput } from "../utils/room-input.js";
 
@@ -39,6 +39,7 @@ export class MonitoringService {
     let fatalError: Error | null = null;
     let lastTitle: string | undefined;
     let lastLiveName: string | undefined;
+    const giftComboTotals = new Map<string, number>();
 
     const flush = async () => {
       if (buffer.length === 0) return;
@@ -66,7 +67,9 @@ export class MonitoringService {
           collectorVersion,
           this.config.userHashSalt
         );
-        for (const event of events) {
+        for (const normalizedEvent of events) {
+          const event = applyGiftComboDelta(normalizedEvent, giftComboTotals);
+          if (event.eventType === "gift" && Number(event.metrics.giftCount ?? 0) <= 0) continue;
           if (event.eventType === "chat") {
             process.stdout.write(
               `[${event.receivedAt.toLocaleTimeString()}] ${event.nickname ?? "匿名"}：${event.content ?? ""}\n`

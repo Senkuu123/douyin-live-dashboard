@@ -57,6 +57,7 @@
 - 禁止在未完成单房间稳定性验证前扩展多房间并发
 - 禁止在代码、文档、日志和Git中保存MySQL明文密码
 - 禁止对非项目数据库执行`ALTER`、`DROP`、`TRUNCATE`、`RENAME`或数据迁移
+- 编写GitHub仓库描述、公开版README或发行说明时，先放入`docs/github-publish/`，未经用户明确确认不得覆盖项目根目录现有`README.md`
 
 ## 工作日志
 

@@ -23,8 +23,12 @@ export interface EventMetrics {
   giftId?: string;
   giftName?: string;
   giftCount?: number;
+  giftComboCount?: number;
+  giftGroupId?: string;
+  giftRepeatEnd?: boolean;
   diamondCount?: number;
   userLevel?: number;
+  fanClubLevel?: number;
   action?: number;
 }
 
@@ -119,7 +123,7 @@ function parseEventTime(value: unknown, fallback: Date): Date {
   return Number.isNaN(parsed.getTime()) ? fallback : parsed;
 }
 
-function userIdentity(message: SidecarMessage): { id?: string; nickname?: string; level?: number } {
+function userIdentity(message: SidecarMessage): { id?: string; nickname?: string; level?: number; fanClubLevel?: number } {
   const user = isRecord(message.user) ? message.user : undefined;
   return {
     // The sidecar currently emits a room-scoped constant in `id`/`idStr` for
@@ -127,7 +131,8 @@ function userIdentity(message: SidecarMessage): { id?: string; nickname?: string
     // must take precedence or every viewer collapses into one unique user.
     id: firstString(user?.secUid, user?.webcastUid, user?.idStr, user?.id, user?.shortId),
     nickname: firstString(user?.nickname, user?.name),
-    level: firstNumber(nested(user, "payGrade", "level"), nested(user, "fansClub", "data", "level"))
+    level: firstNumber(nested(user, "payGrade", "level"), nested(user, "fansClub", "data", "level")),
+    fanClubLevel: firstNumber(nested(user, "fansClub", "data", "level"), nested(user, "fansClub", "level"))
   };
 }
 
@@ -166,15 +171,32 @@ function extractMetrics(message: SidecarMessage, eventType: EventType): EventMet
     totalUsers: firstNumber(message.totalUser, message.totalUserCount, message.totalPvForAnchor),
     totalLikes: firstNumber(message.likeCount, message.totalLikeCount),
     userLevel: userIdentity(message).level,
+    fanClubLevel: userIdentity(message).fanClubLevel,
     action: firstNumber(message.action)
   };
   if (eventType === "gift") {
     metrics.giftId = firstString(message.giftId, gift?.id, gift?.giftId);
     metrics.giftName = firstString(message.giftName, gift?.name, gift?.describe);
-    metrics.giftCount = firstNumber(message.comboCount, message.repeatCount, message.count, 1);
+    metrics.giftComboCount = firstNumber(message.comboCount, message.repeatCount, message.count, 1);
+    metrics.giftCount = metrics.giftComboCount;
+    metrics.giftGroupId = firstString(message.groupId, message.comboId);
+    metrics.giftRepeatEnd = Boolean(firstNumber(message.repeatEnd, message.comboEnd, 0));
     metrics.diamondCount = firstNumber(message.diamondCount, gift?.diamondCount);
   }
   return Object.fromEntries(Object.entries(metrics).filter(([, value]) => value !== undefined)) as EventMetrics;
+}
+
+export function applyGiftComboDelta(event: StandardEvent, comboTotals: Map<string, number>): StandardEvent {
+  if (event.eventType !== "gift" || !event.metrics.giftGroupId) return event;
+  const cumulative = Math.max(0, Number(event.metrics.giftComboCount ?? event.metrics.giftCount ?? 1));
+  const key = `${event.userIdHash ?? event.nickname ?? "anonymous"}:${event.metrics.giftId ?? "gift"}:${event.metrics.giftGroupId}`;
+  const previous = comboTotals.get(key) ?? 0;
+  const delta = cumulative >= previous ? cumulative - previous : cumulative;
+  event.metrics.giftCount = Math.max(0, delta);
+  event.content = `${event.metrics.giftName ?? "礼物"} ×${event.metrics.giftCount}`;
+  if (event.metrics.giftRepeatEnd) comboTotals.delete(key);
+  else comboTotals.set(key, cumulative);
+  return event;
 }
 
 function describe(eventType: EventType, message: SidecarMessage, metrics: EventMetrics): string | null {

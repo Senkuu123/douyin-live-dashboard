@@ -44,8 +44,27 @@ async function createWindow(): Promise<void> {
     await mkdir(outputDir, { recursive: true });
     try {
       await new Promise((resolve) => setTimeout(resolve, 1200));
-      const summary = await mainWindow.webContents.executeJavaScript(`({ ok: true, panels: document.querySelectorAll('.panel').length, metrics: document.querySelectorAll('.metric-card').length, title: document.title, body: document.body.innerText.slice(0, 200), factors: [...document.querySelectorAll('.factor')].map(el => ({ label: el.querySelector('b')?.textContent, value: el.querySelector('strong')?.textContent, display: getComputedStyle(el).display, width: Math.round(el.getBoundingClientRect().width), height: Math.round(el.getBoundingClientRect().height) })) })`);
+      const summary = await mainWindow.webContents.executeJavaScript(`({ ok: true, panels: document.querySelectorAll('.panel').length, metrics: document.querySelectorAll('.metric-card').length, title: document.title, body: document.body.innerText.slice(0, 200), roomInputOutline: getComputedStyle(document.querySelector('.room-field input')).outlineStyle, factors: [...document.querySelectorAll('.factor')].map(el => ({ label: el.querySelector('b')?.textContent, value: el.querySelector('strong')?.textContent, display: getComputedStyle(el).display, width: Math.round(el.getBoundingClientRect().width), height: Math.round(el.getBoundingClientRect().height) })) })`);
       const image = await mainWindow.webContents.capturePage();
+      await mainWindow.webContents.executeJavaScript(`document.getElementById('scoreSettingsButton')?.click()`);
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      const scoreSettingsImage = await mainWindow.webContents.capturePage();
+      await mainWindow.webContents.executeJavaScript(`document.querySelector('.drawer-mask')?.click(); document.getElementById('actionSettingsButton')?.click()`);
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      const actionSettingsImage = await mainWindow.webContents.capturePage();
+      await mainWindow.webContents.executeJavaScript(`document.querySelector('.settings-drawer.open .secondary')?.click()`);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      await mainWindow.webContents.executeJavaScript(`document.querySelector('[data-rank="gift"]')?.click()`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const giftRankImage = await mainWindow.webContents.capturePage();
+      await mainWindow.webContents.executeJavaScript(`document.querySelector('[data-rank="fans"]')?.click()`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const fanRankImage = await mainWindow.webContents.capturePage();
+      const rankSummary = await mainWindow.webContents.executeJavaScript(`({ active: document.querySelector('.rank-tabs button.active')?.textContent, rows: document.querySelectorAll('.rank-panel ol li').length, first: document.querySelector('.rank-panel ol li')?.innerText })`);
+      await mainWindow.webContents.executeJavaScript(`document.querySelector('.event-filters button:nth-child(2)')?.click(); document.getElementById('onlyHighValueButton')?.click()`);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const highValueImage = await mainWindow.webContents.capturePage();
+      const eventSummary = await mainWindow.webContents.executeJavaScript(`({ actionCards: document.querySelectorAll('.action-card').length, visibleGiftRows: document.querySelectorAll('.event-row.gift').length, zeroValueGiftRows: [...document.querySelectorAll('.event-row.gift')].filter(row => row.innerText.includes('价值 0 钻石')).length, onlyHighValue: document.getElementById('onlyHighValueButton')?.classList.contains('active') })`);
       await mainWindow.webContents.executeJavaScript(`document.getElementById('levelFilterButton')?.click()`);
       await new Promise((resolve) => setTimeout(resolve, 150));
       const drawerImage = await mainWindow.webContents.capturePage();
@@ -57,9 +76,14 @@ async function createWindow(): Promise<void> {
       const appliedImage = await mainWindow.webContents.capturePage();
       await Promise.all([
         writeFile(path.join(outputDir, "ui-smoke.png"), image.toPNG()),
+        writeFile(path.join(outputDir, "ui-score-settings.png"), scoreSettingsImage.toPNG()),
+        writeFile(path.join(outputDir, "ui-action-settings.png"), actionSettingsImage.toPNG()),
+        writeFile(path.join(outputDir, "ui-gift-ranking.png"), giftRankImage.toPNG()),
+        writeFile(path.join(outputDir, "ui-fans-ranking.png"), fanRankImage.toPNG()),
+        writeFile(path.join(outputDir, "ui-high-value-filter.png"), highValueImage.toPNG()),
         writeFile(path.join(outputDir, "ui-level-filter.png"), drawerImage.toPNG()),
         writeFile(path.join(outputDir, "ui-level-filter-applied.png"), appliedImage.toPNG()),
-        writeFile(path.join(outputDir, "ui-smoke.json"), JSON.stringify({ ...summary, filter: filterSummary }, null, 2), "utf8")
+        writeFile(path.join(outputDir, "ui-smoke.json"), JSON.stringify({ ...summary, ranking: rankSummary, events: eventSummary, filter: filterSummary }, null, 2), "utf8")
       ]);
     } catch (error) {
       await writeFile(path.join(outputDir, "ui-smoke.json"), JSON.stringify({ ok: false, error: error instanceof Error ? error.stack : String(error) }, null, 2), "utf8");

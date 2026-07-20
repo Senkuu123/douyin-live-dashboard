@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractSidecarRoomMetadata, normalizeSidecarPayload } from "../src/domain/events.js";
+import { applyGiftComboDelta, extractSidecarRoomMetadata, normalizeSidecarPayload } from "../src/domain/events.js";
 
 describe("normalizeSidecarPayload", () => {
   it("normalizes supported messages and hashes user identifiers", () => {
@@ -27,15 +27,29 @@ describe("normalizeSidecarPayload", () => {
 
   it("extracts gift, member, social and room metrics", () => {
     const events = normalizeSidecarPayload([
-      { common: { msgId: "g1" }, method: "WebcastGiftMessage", user: { idStr: "u1", nickname: "送礼用户" }, gift: { id: "88", name: "小心心", diamondCount: 2 }, repeatCount: 3 },
+      { common: { msgId: "g1" }, method: "WebcastGiftMessage", user: { idStr: "u1", nickname: "送礼用户", fansClub: { data: { level: 6 } } }, gift: { id: "88", name: "小心心", diamondCount: 2 }, repeatCount: 3, groupId: "combo-1" },
       { common: { msgId: "e1" }, method: "WebcastMemberMessage", user: { idStr: "u2", nickname: "新用户" } },
       { common: { msgId: "f1" }, method: "WebcastSocialMessage", action: 1, user: { idStr: "u3" } },
       { common: { msgId: "s1" }, method: "WebcastRoomStatsMessage", userCount: "3825", totalUser: "9322", likeCount: "736" }
     ], "test", "salt");
 
     expect(events.map((event) => event.eventType)).toEqual(["gift", "enter", "follow", "room_stats"]);
-    expect(events[0]?.metrics).toMatchObject({ giftId: "88", giftName: "小心心", giftCount: 3, diamondCount: 2 });
+    expect(events[0]?.metrics).toMatchObject({ giftId: "88", giftName: "小心心", giftCount: 3, giftComboCount: 3, giftGroupId: "combo-1", diamondCount: 2, fanClubLevel: 6 });
     expect(events[3]?.metrics).toMatchObject({ online: 3825, totalUsers: 9322, totalLikes: 736 });
+  });
+
+  it("converts cumulative gift combo counts into incremental counts", () => {
+    const state = new Map<string, number>();
+    const payloads = [
+      { common: { msgId: "g1" }, method: "WebcastGiftMessage", user: { webcastUid: "u1" }, gift: { id: "88", name: "小心心" }, repeatCount: 1, groupId: "combo", repeatEnd: 0 },
+      { common: { msgId: "g2" }, method: "WebcastGiftMessage", user: { webcastUid: "u1" }, gift: { id: "88", name: "小心心" }, repeatCount: 2, groupId: "combo", repeatEnd: 0 },
+      { common: { msgId: "g3" }, method: "WebcastGiftMessage", user: { webcastUid: "u1" }, gift: { id: "88", name: "小心心" }, repeatCount: 3, groupId: "combo", repeatEnd: 0 },
+      { common: { msgId: "g4" }, method: "WebcastGiftMessage", user: { webcastUid: "u1" }, gift: { id: "88", name: "小心心" }, repeatCount: 3, groupId: "combo", repeatEnd: 1 }
+    ];
+    const events = payloads.map((payload) => applyGiftComboDelta(normalizeSidecarPayload(payload, "test", "salt")[0]!, state));
+    expect(events.map((event) => event.metrics.giftCount)).toEqual([1, 1, 1, 0]);
+    expect(events.map((event) => event.content)).toEqual(["小心心 ×1", "小心心 ×1", "小心心 ×1", "小心心 ×0"]);
+    expect(state.size).toBe(0);
   });
 
   it("supports the protobuf JSON shape emitted by the collector sidecar", () => {

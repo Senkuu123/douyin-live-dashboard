@@ -17,9 +17,11 @@ export interface DashboardSnapshot {
   uniqueUsers: number;
   reconnects: number;
   online: number;
-  trend: Array<{ minute: string; chat: number; enter: number; like: number; gift: number }>;
+  trend: Array<{ minute: string; online: number; chat: number; enter: number; like: number; gift: number; unique: number; issues: number }>;
   recentEvents: Array<Record<string, unknown>>;
   topChatters: Array<{ nickname: string; count: number; level: number }>;
+  topGifters: Array<{ nickname: string; count: number; value: number; level: number }>;
+  topFans: Array<{ nickname: string; count: number; fanClubLevel: number; level: number }>;
 }
 
 export interface SessionExport {
@@ -34,6 +36,8 @@ export interface LevelDashboardSummary {
   uniqueUsers: number;
   recentEvents: Array<Record<string, unknown>>;
   topChatters: Array<{ nickname: string; count: number; level: number }>;
+  topGifters: Array<{ nickname: string; count: number; value: number; level: number }>;
+  topFans: Array<{ nickname: string; count: number; fanClubLevel: number; level: number }>;
 }
 
 export class MonitoringRepository {
@@ -190,14 +194,18 @@ export class MonitoringRepository {
     );
     const session = sessions[0];
     if (!session) {
-      return { session: null, counts: {}, uniqueUsers: 0, reconnects: 0, online: 0, trend: [], recentEvents: [], topChatters: [] };
+      return { session: null, counts: {}, uniqueUsers: 0, reconnects: 0, online: 0, trend: [], recentEvents: [], topChatters: [], topGifters: [], topFans: [] };
     }
     const sessionId = String(session.id);
-    const [[countRows], [userRows], [connectionRows], [metricRows], [trendRows], [recentRows], [topRows]] = await Promise.all([
+    const levelExpression = "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.userLevel')) AS UNSIGNED), 0)";
+    const fanLevelExpression = "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.fanClubLevel')) AS UNSIGNED), CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.user.fansClub.data.level')) AS UNSIGNED), 0)";
+    const [[countRows], [userRows], [connectionRows], [metricRows], [trendRows], [recentRows], [topRows], [giftRows], [fanRows]] = await Promise.all([
       this.pool.execute<RowDataPacket[]>(
         `SELECT event_type AS eventType,
                 SUM(CASE WHEN event_type = 'like'
                     THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.count')) AS UNSIGNED), 1)
+                    WHEN event_type = 'gift'
+                    THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.giftCount')) AS UNSIGNED), 1)
                     ELSE 1 END) AS count
          FROM interaction_events WHERE session_id = ? GROUP BY event_type`,
         [sessionId]
@@ -218,12 +226,14 @@ export class MonitoringRepository {
       ),
       this.pool.execute<RowDataPacket[]>(
         `SELECT DATE_FORMAT(received_at, '%Y-%m-%dT%H:%i:00Z') AS minute,
+                MAX(CASE WHEN event_type IN ('room_stats','audience') THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.online')) AS UNSIGNED), 0) END) AS online,
                 SUM(event_type = 'chat') AS chat, SUM(event_type = 'enter') AS enter,
-                SUM(event_type = 'like') AS likeCount, SUM(event_type = 'gift') AS gift
-         FROM interaction_events WHERE session_id = ? AND received_at >=
-           (SELECT MAX(received_at) FROM interaction_events WHERE session_id = ?) - INTERVAL 20 MINUTE
+                SUM(CASE WHEN event_type='like' THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.count')) AS UNSIGNED),1) ELSE 0 END) AS likeCount,
+                SUM(CASE WHEN event_type='gift' THEN COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.giftCount')) AS UNSIGNED),1) ELSE 0 END) AS gift,
+                COUNT(DISTINCT user_id_hash) AS uniqueUsers
+         FROM interaction_events WHERE session_id = ?
          GROUP BY DATE_FORMAT(received_at, '%Y-%m-%dT%H:%i:00Z') ORDER BY minute`,
-        [sessionId, sessionId]
+        [sessionId]
       ),
       this.pool.execute<RowDataPacket[]>(
         `SELECT event_id AS eventId, event_type AS eventType, received_at AS receivedAt,
@@ -233,10 +243,24 @@ export class MonitoringRepository {
       ),
       this.pool.execute<RowDataPacket[]>(
         `SELECT COALESCE(NULLIF(nickname, ''), '匿名用户') AS nickname, COUNT(*) AS count,
-                MAX(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.userLevel')) AS UNSIGNED), 0)) AS level
+                MAX(${levelExpression}) AS level
          FROM interaction_events WHERE session_id = ? AND event_type = 'chat'
          GROUP BY user_id_hash, nickname ORDER BY count DESC LIMIT 8`,
         [sessionId]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT COALESCE(NULLIF(nickname, ''), '匿名用户') AS nickname,
+                SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.giftCount')) AS UNSIGNED),1)) AS count,
+                SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.giftCount')) AS UNSIGNED),1) * COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.diamondCount')) AS UNSIGNED),0)) AS value,
+                MAX(${levelExpression}) AS level
+         FROM interaction_events WHERE session_id=? AND event_type='gift' AND user_id_hash IS NOT NULL
+         GROUP BY user_id_hash,nickname ORDER BY value DESC,count DESC LIMIT 10`, [sessionId]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT COALESCE(NULLIF(nickname, ''), '匿名用户') AS nickname, COUNT(*) AS count,
+                MAX(${fanLevelExpression}) AS fanClubLevel, MAX(${levelExpression}) AS level
+         FROM interaction_events WHERE session_id=? AND user_id_hash IS NOT NULL AND ${fanLevelExpression}>0
+         GROUP BY user_id_hash,nickname ORDER BY fanClubLevel DESC,count DESC LIMIT 10`, [sessionId]
       )
     ]);
     return {
@@ -246,11 +270,13 @@ export class MonitoringRepository {
       reconnects: Number(connectionRows[0]?.count ?? 0),
       online: Number(metricRows[0]?.online ?? 0),
       trend: trendRows.map((row) => ({
-        minute: String(row.minute), chat: Number(row.chat), enter: Number(row.enter),
-        like: Number(row.likeCount), gift: Number(row.gift)
+        minute: String(row.minute), online: Number(row.online ?? 0), chat: Number(row.chat), enter: Number(row.enter),
+        like: Number(row.likeCount), gift: Number(row.gift), unique: Number(row.uniqueUsers), issues: 0
       })),
       recentEvents: recentRows.map((row) => ({ ...row })),
-      topChatters: topRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count), level: Number(row.level ?? 0) }))
+      topChatters: topRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count), level: Number(row.level ?? 0) })),
+      topGifters: giftRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count), value: Number(row.value), level: Number(row.level ?? 0) })),
+      topFans: fanRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count), fanClubLevel: Number(row.fanClubLevel), level: Number(row.level ?? 0) }))
     };
   }
 
@@ -281,9 +307,10 @@ export class MonitoringRepository {
       "SELECT id FROM monitoring_sessions ORDER BY started_at DESC LIMIT 1"
     );
     const sessionId = sessions[0]?.id ? String(sessions[0].id) : null;
-    if (!sessionId) return { minLevel: normalizedLevel, counts: {}, uniqueUsers: 0, recentEvents: [], topChatters: [] };
+    if (!sessionId) return { minLevel: normalizedLevel, counts: {}, uniqueUsers: 0, recentEvents: [], topChatters: [], topGifters: [], topFans: [] };
     const levelExpression = "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.userLevel')) AS UNSIGNED), 0)";
-    const [[countRows], [userRows], [recentRows], [topRows]] = await Promise.all([
+    const fanLevelExpression = "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.fanClubLevel')) AS UNSIGNED), CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.user.fansClub.data.level')) AS UNSIGNED), 0)";
+    const [[countRows], [userRows], [recentRows], [topRows], [giftRows], [fanRows]] = await Promise.all([
       this.pool.execute<RowDataPacket[]>(
         `SELECT event_type AS eventType,
                 SUM(CASE WHEN event_type = 'like'
@@ -312,6 +339,20 @@ export class MonitoringRepository {
          FROM interaction_events WHERE session_id = ? AND event_type = 'chat' AND ${levelExpression} >= ?
          GROUP BY user_id_hash, nickname ORDER BY count DESC LIMIT 10`,
         [sessionId, normalizedLevel]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT COALESCE(NULLIF(nickname, ''), '匿名用户') AS nickname,
+                SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.giftCount')) AS UNSIGNED),1)) AS count,
+                SUM(COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.giftCount')) AS UNSIGNED),1) * COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(metrics_json, '$.diamondCount')) AS UNSIGNED),0)) AS value,
+                MAX(${levelExpression}) AS level
+         FROM interaction_events WHERE session_id=? AND event_type='gift' AND ${levelExpression}>=? AND user_id_hash IS NOT NULL
+         GROUP BY user_id_hash,nickname ORDER BY value DESC,count DESC LIMIT 10`, [sessionId, normalizedLevel]
+      ),
+      this.pool.execute<RowDataPacket[]>(
+        `SELECT COALESCE(NULLIF(nickname, ''), '匿名用户') AS nickname, COUNT(*) AS count,
+                MAX(${fanLevelExpression}) AS fanClubLevel, MAX(${levelExpression}) AS level
+         FROM interaction_events WHERE session_id=? AND ${levelExpression}>=? AND user_id_hash IS NOT NULL AND ${fanLevelExpression}>0
+         GROUP BY user_id_hash,nickname ORDER BY fanClubLevel DESC,count DESC LIMIT 10`, [sessionId, normalizedLevel]
       )
     ]);
     return {
@@ -319,7 +360,9 @@ export class MonitoringRepository {
       counts: Object.fromEntries(countRows.map((row) => [String(row.eventType), Number(row.count)])),
       uniqueUsers: Number(userRows[0]?.count ?? 0),
       recentEvents: recentRows.map((row) => ({ ...row })),
-      topChatters: topRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count), level: Number(row.level ?? 0) }))
+      topChatters: topRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count), level: Number(row.level ?? 0) })),
+      topGifters: giftRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count), value: Number(row.value), level: Number(row.level ?? 0) })),
+      topFans: fanRows.map((row) => ({ nickname: String(row.nickname), count: Number(row.count), fanClubLevel: Number(row.fanClubLevel), level: Number(row.level ?? 0) }))
     };
   }
 }
