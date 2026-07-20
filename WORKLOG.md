@@ -266,3 +266,16 @@
 - 本地Git根目录是多项目工作区，使用`git subtree split`保留直播看板提交历史，并将项目内容发布到GitHub仓库根目录。
 - 推送目标为`git@github.com:Senkuu123/douyin-live-dashboard.git`的`main`分支，首次远程提交为`cf67e82ecf90fa67dd4c37a711be3277f61557a1`。
 - 推送后核对远程分支、根目录`package.json`和原项目`README.md`，仓库结构正确。
+
+## 2026-07-19 20:15
+
+- 重写`docs/github-publish/README.md`，定位从技术项目介绍改为面向软件用户的功能说明和操作手册。
+- 删除技术架构、技术栈、源码开发、测试命令和工程实现介绍。
+- 补充运行前准备、MySQL首次配置、开始和停止采集、九个界面模块、用户等级筛选、CSV导出、礼物登录态、常见问题、数据隐私和使用限制。
+- 根目录原有`README.md`未改动；GitHub版README的发行说明和仓库描述链接检查通过。
+
+## 2026-07-19 20:38
+
+- 保存GitHub发布快照；远端`main`最新提交为`78c0911`（`Update README.md`）。
+- GitHub仓库已存在`v0.1.0`标签，保留用户在GitHub网页手动更新的根目录README，不从本地覆盖。
+- 本地提交仅归档GitHub用户版README草稿和本次工作记录。
