@@ -259,3 +259,10 @@
 - 按用户纠正恢复项目根目录原有`README.md`，保留此前已完成的趋势、榜单和评分功能说明，没有使用GitHub公开文案覆盖项目文档。
 - 将仓库描述、公开版README和`v0.1.0`发行说明统一移动到`docs/github-publish/`。
 - 项目规范新增约束：GitHub发布文案先放入独立子目录，未经用户明确确认不得覆盖根目录README。
+
+## 2026-07-19 19:09
+
+- 仅暂存并提交`20260714-douyin-live-dashboard`项目改动，排除兄弟项目、`.env.local`、数据库凭据、EXE、`release`和`artifacts`。
+- 本地Git根目录是多项目工作区，使用`git subtree split`保留直播看板提交历史，并将项目内容发布到GitHub仓库根目录。
+- 推送目标为`git@github.com:Senkuu123/douyin-live-dashboard.git`的`main`分支，首次远程提交为`cf67e82ecf90fa67dd4c37a711be3277f61557a1`。
+- 推送后核对远程分支、根目录`package.json`和原项目`README.md`，仓库结构正确。
